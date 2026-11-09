@@ -146,6 +146,13 @@ jobs:
           "$SIGNER" sign --ks ks.p12 --ks-type PKCS12 --ks-pass "pass:${KEYSTORE_PASSWORD}" --ks-key-alias "${KEY_ALIAS}" --key-pass "pass:${KEY_PASSWORD}" --out "hmdm-phoenix-${V}.apk" aligned.apk
           rm -f ks.p12
           "$SIGNER" verify --print-certs "hmdm-phoenix-${V}.apk"
+          # CRITICAL: the new app MUST carry the SAME signing certificate as the one on the tablets today
+          # (source.apk = the fleet's 6.48), or no tablet can update in place.
+          NEWC="$("$SIGNER" verify --print-certs "hmdm-phoenix-${V}.apk" | grep -i 'SHA-256' | head -1)"
+          OLDC="$("$SIGNER" verify --print-certs source.apk | grep -i 'SHA-256' | head -1)"
+          echo "new cert: $NEWC"; echo "old cert: $OLDC"
+          if [ -z "$NEWC" ] || [ "$NEWC" != "$OLDC" ]; then echo "::error::signing certificate does NOT match the fleet's 6.48 — publishing refused (tablets could not update in place)"; exit 1; fi
+          echo "signing certificate matches the fleet — safe to ship"
           sha256sum "hmdm-phoenix-${V}.apk"
           gh release create "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --title "launcher ${V}" --notes "Patched from ${{ inputs.source_tag }}: lock-screen line + pull-down restored. Signed with the Phoenix key." \
             || gh release upload "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --clobber
