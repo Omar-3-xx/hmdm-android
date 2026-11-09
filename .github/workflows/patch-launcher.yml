@@ -139,10 +139,15 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${KEYSTORE_B64:-}" ]; then echo "::error::signing secrets not set — add SIGNING_KEYSTORE_B64 / _PASSWORD / SIGNING_KEY_ALIAS / SIGNING_KEY_PASSWORD"; exit 1; fi
+          # Windows PowerShell piping Read-Host into `gh secret set` can append a CR/LF to the value.
+          # Strip any trailing newline/CR from the text secrets (a password/alias never ends in one).
+          KEYSTORE_PASSWORD="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
+          KEY_PASSWORD="$(printf '%s' "$KEY_PASSWORD" | tr -d '\r\n')"
+          KEY_ALIAS="$(printf '%s' "$KEY_ALIAS" | tr -d '\r\n')"
           set -x
           V="${{ inputs.new_version_name }}"
           SIGNER="$(ls $ANDROID_HOME/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
-          echo "$KEYSTORE_B64" | base64 -d > ks.p12
+          echo "$KEYSTORE_B64" | tr -d '\r\n' | base64 -d > ks.p12
           "$SIGNER" sign --ks ks.p12 --ks-type PKCS12 --ks-pass "pass:${KEYSTORE_PASSWORD}" --ks-key-alias "${KEY_ALIAS}" --key-pass "pass:${KEY_PASSWORD}" --out "hmdm-phoenix-${V}.apk" aligned.apk
           rm -f ks.p12
           "$SIGNER" verify --print-certs "hmdm-phoenix-${V}.apk"
