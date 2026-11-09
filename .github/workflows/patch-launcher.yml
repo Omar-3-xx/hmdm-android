@@ -107,6 +107,16 @@ jobs:
           for f in $(grep -rln --include='*.smali' -e "$ID" -e "setForegroundService" -e "Push notifications enqueued" -e '"mqttWorker"' smali*/com/hmdm smali*/org/eclipse 2>/dev/null | sort -u); do cp -- "$f" "/tmp/hits/push/$(echo "$f" | tr '/' '_')"; done
           for f in $(ls smali*/org/eclipse/paho/android/service/MqttService.smali smali*/org/eclipse/paho/android/service/MqttAndroidClient.smali 2>/dev/null); do cp -- "$f" "/tmp/hits/push/$(echo "$f" | tr '/' '_')"; done
           ls -l /tmp/hits/push
+      - name: INSPECT — how app versions are compared
+        if: ${{ inputs.mode == 'inspect' }}
+        run: |
+          set -uxo pipefail
+          cd out
+          F="$(grep -rl --include='*.smali' "Downgrade requested" smali* | head -3)"
+          echo "$F"
+          mkdir -p /tmp/hits/ver
+          for f in $F; do cp -- "$f" "/tmp/hits/ver/$(echo "$f" | tr '/' '_')"; done
+          for f in $F; do grep -n -B60 -A10 "Downgrade requested" "$f" | grep -E "invoke|const-string|if-|getCode|versionCode|getVersion" | head -60; done
       - name: Upload the smali to edit
         if: ${{ inputs.mode == 'inspect' }}
         uses: actions/upload-artifact@v4
