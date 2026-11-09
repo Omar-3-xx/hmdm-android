@@ -149,6 +149,8 @@ jobs:
           awk '$0==".method public static startRemoteAccessApp(Landroid/content/Context;Ljava/lang/String;)V"{m=1;next} m&&/^[[:space:]]*\.locals/{w=1;next} w&&$0!~/^[[:space:]]*$/{l=$0;gsub(/^[[:space:]]+/,"",l); if(l=="return-void"){print "OK: RustDesk auto-open neutered"; ok=1}; w=0;m=0} END{if(!ok){print "::error::startRemoteAccessApp still runs"; exit 1}}' "$U"
           P="$(grep -rlE '^\.method .*static .*preventStatusBarExpansion\(' verify/smali* | head -1)"
           awk '/^\.method .*static .*preventStatusBarExpansion\(/{m=1;next} m&&/^[[:space:]]*\.locals/{w=1;next} w&&$0!~/^[[:space:]]*$/{l=$0;gsub(/^[[:space:]]+/,"",l); if(l=="const/4 p0, 0x0"){print "OK: status-bar touch blocker returns null"; ok=1}; w=0;m=0} END{if(!ok){print "::error::preventStatusBarExpansion still draws"; exit 1}}' "$P"
+          A="$(grep -rlE '^\.method public clearRestrictions\(Landroid/view/View;\)V$' verify/smali* | head -1)"
+          awk '/^\.method public clearRestrictions\(/{m=1} m&&/const-string v0, "no_debugging_features"/{s=1} m&&s&&/unlockUserRestrictions/{print "OK: admin panel lifts the debugging block"; ok=1; exit} m&&/^\.end method/{exit} END{if(!ok){print "::error::clearRestrictions does not lift no_debugging_features"; exit 1}}' "$A"
           grep -E "versionCode|versionName" out/apktool.yml
 
       - name: Zipalign

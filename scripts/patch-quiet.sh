@@ -51,6 +51,20 @@ echo "preventStatusBarExpansion: $P :: $HDR"
 echo "$HDR" | grep -qE 'preventStatusBarExpansion\(L[^;]+;.*\)L[^;]+;$' || { echo "::error::unexpected signature: $HDR"; exit 1; }
 neuter "$P" "$HDR" 'const/4 p0, 0x0|return-object p0' 'edit E (status-bar touch blocker)'
 
+# ---- Edit F: the admin panel's "Clear restrictions" also lifts the debugging block -------------------
+# The launcher keeps four "protective" blocks (factory reset, safe boot, debugging, add user) that neither a
+# config change nor "Clear restrictions" ever lifts (Utils.PROTECTIVE_RESTRICTIONS / withoutProtectiveRestrictions).
+# Owner, 9 Nov 2026: "instead of blocking build number and developer make them with a separate admin only pw".
+# So the password-gated admin panel now clears no_debugging_features too; the next config sync puts it back.
+# Factory reset, safe boot and add user stay protective.
+A="$(grep -rlE '^\.method public clearRestrictions\(Landroid/view/View;\)V$' "$OUT"/smali* | head -1 || true)"
+[ -n "$A" ] || { echo "::error::AdminActivity.clearRestrictions not found"; exit 1; }
+echo "clearRestrictions: $A"
+neuter "$A" '.method public clearRestrictions(Landroid/view/View;)V' \
+  'const-string v0, "no_debugging_features"|invoke-static {p0, v0}, Lcom/hmdm/launcher/util/Utils;->unlockUserRestrictions(Landroid/content/Context;Ljava/lang/String;)V' \
+  'edit F (admin panel lifts the debugging block)'
+awk '/^\.method public clearRestrictions\(/{m=1} m{print} m&&/^\.end method/{exit}' "$A" | head -60
+
 echo "----- callers of preventStatusBarExpansion (must null-check the result) -----"
 grep -rn -A8 --include='*.smali' 'preventStatusBarExpansion(' "$OUT"/smali* | grep -v "^$P" | head -60 || true
 echo "----- every use of the stored statusBarView -----"
