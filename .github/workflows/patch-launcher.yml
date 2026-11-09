@@ -107,10 +107,13 @@ jobs:
           grep -rn --include='*.smali' -F "This device is not private. It belongs to Sato Pharma." verify/smali* | head
           echo "----- old line gone? (must be empty) -----"
           if grep -rn --include='*.smali' -F "This device belongs to Sato Pharma" verify/smali*; then echo "::error::old line still present"; exit 1; fi
-          echo "----- status-bar disable neutered? -----"
-          grep -n -B2 "DevicePolicyManager;->setStatusBarDisabled" verify/smali/com/hmdm/launcher/util/Utils.smali | head
-          echo "----- overlay start skipped? -----"
-          grep -n "phoenix-skip-overlay" verify/smali/com/hmdm/launcher/helper/Initializer.smali | head
+          echo "----- status-bar disable neutered? (const/4 p1, 0x0 right before the DPM call) -----"
+          U=verify/smali/com/hmdm/launcher/util/Utils.smali
+          grep -n -B3 "DevicePolicyManager;->setStatusBarDisabled" "$U" | head
+          awk '/DevicePolicyManager;->setStatusBarDisabled\(Landroid\/content\/ComponentName;Z\)Z/{ if (prev ~ /const\/4 p1, 0x0/) {print "OK: disable forced false"; found=1} } { if ($0 !~ /^[[:space:]]*$/) prev=$0 } END{ if(!found){print "::error::const/4 p1, 0x0 not immediately before the DPM setStatusBarDisabled call"; exit 1} }' "$U"
+          echo "----- overlay start skipped? (a goto immediately follows the setStatusBarDisabled call-site) -----"
+          I=verify/smali/com/hmdm/launcher/helper/Initializer.smali
+          awk 'f && $0 !~ /^[[:space:]]*$/ { if ($0 ~ /^[[:space:]]*goto /) {print "OK: overlay start skipped by",$0; ok=1} else {print "::error::expected a goto right after the setStatusBarDisabled call-site, got:",$0; exit 1}; f=0 } /invoke-static \{p0, v4\}, Lcom\/hmdm\/launcher\/util\/Utils;->setStatusBarDisabled\(Landroid\/content\/Context;Z\)V/{ f=1 } END{ if(!ok){print "::error::setStatusBarDisabled call-site not found in Initializer"; exit 1} }' "$I"
 
       - name: Zipalign
         if: ${{ inputs.mode == 'build' || inputs.mode == 'build-unsigned' }}
