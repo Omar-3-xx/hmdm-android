@@ -81,6 +81,32 @@ jobs:
           done
           cp apktool.yml /tmp/hits/apktool.yml || true
           ls -l /tmp/hits || true
+      - name: INSPECT — the push-notification notice (6.51)
+        if: ${{ inputs.mode == 'inspect' }}
+        run: |
+          set -uxo pipefail
+          cd out
+          echo "===== string resource ====="
+          grep -rn "Push notifications are active" res/values/strings.xml || true
+          N="$(grep -o 'name="[^"]*">Push notifications are active' res/values/strings.xml | sed 's/name="//;s/">.*//' | head -1)"
+          echo "resource name: $N"
+          grep -n "\"$N\"" res/values/public.xml || true
+          ID="$(grep "name=\"$N\"" res/values/public.xml | grep -o 'id="0x[0-9a-f]*"' | sed 's/id="//;s/"//')"
+          echo "resource id: $ID"
+          echo "===== who uses it ====="
+          grep -rln --include='*.smali' "$ID" smali* || true
+          echo "===== setForegroundService / startForeground / startForegroundService ====="
+          grep -rn --include='*.smali' -e "setForegroundService" -e "->startForeground(" -e "startForegroundService" smali* | grep -v '/androidx/' | head -40 || true
+          echo "===== NotificationChannel constructions outside libraries ====="
+          grep -rn --include='*.smali' "Landroid/app/NotificationChannel;-><init>" smali*/com/hmdm smali*/org/eclipse 2>/dev/null | head -20 || true
+          echo "===== push option strings ====="
+          grep -rn --include='*.smali' -e '"mqttWorker"' -e '"mqttAlarm"' -e '"polling"' -e '"longPolling"' smali* | head -20 || true
+          echo "===== Push notifications enqueued ====="
+          grep -rn --include='*.smali' "Push notifications enqueued" smali* | head || true
+          mkdir -p /tmp/hits/push
+          for f in $(grep -rln --include='*.smali' -e "$ID" -e "setForegroundService" -e "Push notifications enqueued" -e '"mqttWorker"' smali*/com/hmdm smali*/org/eclipse 2>/dev/null | sort -u); do cp -- "$f" "/tmp/hits/push/$(echo "$f" | tr '/' '_')"; done
+          for f in $(ls smali*/org/eclipse/paho/android/service/MqttService.smali smali*/org/eclipse/paho/android/service/MqttAndroidClient.smali 2>/dev/null); do cp -- "$f" "/tmp/hits/push/$(echo "$f" | tr '/' '_')"; done
+          ls -l /tmp/hits/push
       - name: Upload the smali to edit
         if: ${{ inputs.mode == 'inspect' }}
         uses: actions/upload-artifact@v4
