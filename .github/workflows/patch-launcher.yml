@@ -41,7 +41,7 @@ jobs:
       - name: Install apktool
         run: |
           set -euxo pipefail
-          curl -fsSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          curl -fsSL --retry 3 -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar || curl -fsSL --retry 3 -o apktool.jar https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar
           printf '#!/usr/bin/env bash\njava -jar %s/apktool.jar "$@"\n' "$PWD" | sudo tee /usr/local/bin/apktool >/dev/null
           sudo chmod +x /usr/local/bin/apktool
           apktool --version
