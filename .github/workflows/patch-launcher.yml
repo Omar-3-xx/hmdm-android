@@ -130,6 +130,16 @@ jobs:
           echo "===== who writes the failure mark ====="
           grep -rn --include='*.smali' -i -e "InstallFailure" -e "installFailure" -e "install_failure" smali*/com/hmdm | head -40 || true
           for f in $(grep -rl --include='*.smali' -i -e "InstallFailure" -e "installFailure" smali*/com/hmdm | sort -u); do cp -- "$f" "/tmp/hits/fail/$(echo "$f" | tr '/' '_')"; done
+      - name: INSPECT — how the download record is looked up
+        if: ${{ inputs.mode == 'inspect' }}
+        run: |
+          set -uxo pipefail
+          cd out
+          mkdir -p /tmp/hits/dl
+          for f in $(grep -rl --include='*.smali' -e "canDownload" -e "Lcom/hmdm/launcher/db/DownloadTable" -e "saveFailedAttempt" smali*/com/hmdm | sort -u); do echo "$f"; cp -- "$f" "/tmp/hits/dl/$(echo "$f" | tr / _)"; done
+          ls smali*/com/hmdm/launcher/db/ || true
+          for f in smali*/com/hmdm/launcher/db/*.smali; do cp -- "$f" "/tmp/hits/dl/$(echo "$f" | tr / _)"; done
+          grep -rn --include='*.smali' -e "getAppDownloadPath|getTempPath|lastIndexOf|substring" smali/com/hmdm/launcher/util/InstallUtils.smali | head -20 || true
       - name: Upload the smali to edit
         if: ${{ inputs.mode == 'inspect' }}
         uses: actions/upload-artifact@v4
