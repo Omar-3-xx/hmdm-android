@@ -1,0 +1,133 @@
+name: patch-launcher
+
+# Rebuild the Phoenix rep-tablet launcher by patching the proven 6.48 binary, because its
+# source is gone (the old fork's account is suspended). INSPECT prints the smali we must edit;
+# BUILD applies the two edits, re-signs with the Phoenix key (from secrets) and makes a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "inspect = show the smali to edit; build = patch, sign, release"
+        required: true
+        default: inspect
+        type: choice
+        options: [inspect, build]
+      source_tag:
+        description: "release tag holding the APK to patch"
+        required: true
+        default: launcher-6.48-r1
+      new_version_name:
+        description: "version name for the BUILD (e.g. 6.49)"
+        required: true
+        default: "6.49"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Tools (apktool + Android build-tools)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zipalign apksigner >/dev/null 2>&1 || true
+          curl -fsSL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          echo '#!/usr/bin/env bash' | sudo tee /usr/local/bin/apktool >/dev/null
+          echo 'java -jar '"$PWD"'/apktool.jar "$@"' | sudo tee -a /usr/local/bin/apktool >/dev/null
+          sudo chmod +x /usr/local/bin/apktool
+          apktool --version
+          which zipalign apksigner || true
+
+      - name: Download the source APK from its release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          gh release download "${{ inputs.source_tag }}" --repo "${{ github.repository }}" --pattern '*.apk' --dir .
+          ls -l *.apk
+          cp -- *.apk source.apk
+
+      - name: Decompile
+        run: |
+          set -euxo pipefail
+          apktool d -f -o out source.apk
+          echo "----- apktool.yml versionInfo -----"
+          sed -n '1,40p' out/apktool.yml | grep -iE 'version|minSdk|targetSdk' || true
+
+      - name: INSPECT — locate the edit targets
+        if: ${{ inputs.mode == 'inspect' }}
+        run: |
+          set -uxo pipefail
+          cd out
+          echo "================= owner-info / lock-screen string ================="
+          grep -rn --include='*.smali' "Sato Pharma" smali* 2>/dev/null || true
+          echo "================= setDeviceOwnerLockScreenInfo call sites ================="
+          grep -rn --include='*.smali' "setDeviceOwnerLockScreenInfo\|setOrganizationName" smali* 2>/dev/null || true
+          echo "================= setStatusBarDisabled call sites ================="
+          grep -rn --include='*.smali' "setStatusBarDisabled" smali* 2>/dev/null || true
+          echo "================= StatusBarOverlayService references ================="
+          grep -rn --include='*.smali' "StatusBarOverlayService" smali* 2>/dev/null || true
+          echo "================= files that mention applyOwnerInfo ================="
+          grep -rn --include='*.smali' "applyOwnerInfo\|lock_screen_owner\|setStatusBar" smali* 2>/dev/null || true
+          # collect the whole smali of every file that matched, for download
+          mkdir -p /tmp/hits
+          grep -rl --include='*.smali' -e "Sato Pharma" -e "setStatusBarDisabled" -e "StatusBarOverlayService" -e "setDeviceOwnerLockScreenInfo" -e "applyOwnerInfo" smali* 2>/dev/null | sort -u | while read -r f; do
+            dest="/tmp/hits/$(echo "$f" | tr '/' '_')"; cp -- "$f" "$dest" || true
+          done
+          cp apktool.yml /tmp/hits/apktool.yml || true
+          ls -l /tmp/hits || true
+
+      - name: Upload the smali to edit
+        if: ${{ inputs.mode == 'inspect' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: smali-to-edit
+          path: /tmp/hits
+          if-no-files-found: warn
+
+      - name: BUILD — apply the two edits
+        if: ${{ inputs.mode == 'build' }}
+        run: |
+          set -euxo pipefail
+          bash scripts/apply-patches.sh out "${{ inputs.new_version_name }}"
+
+      - name: BUILD — rebuild, align, sign
+        if: ${{ inputs.mode == 'build' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then echo "::error::signing secrets are not set — add SIGNING_KEYSTORE_B64 etc. to repo secrets"; exit 1; fi
+          set -x
+          apktool b out -o unsigned.apk
+          ALIGN="$(ls $ANDROID_HOME/build-tools/*/zipalign 2>/dev/null | sort | tail -1 || echo zipalign)"
+          SIGNER="$(ls $ANDROID_HOME/build-tools/*/apksigner 2>/dev/null | sort | tail -1 || echo apksigner)"
+          echo "$KEYSTORE_B64" | base64 -d > ks.p12
+          "$ALIGN" -f 4 unsigned.apk aligned.apk
+          "$SIGNER" sign --ks ks.p12 --ks-type PKCS12 --ks-pass "pass:${KEYSTORE_PASSWORD}" --ks-key-alias "${KEY_ALIAS}" --key-pass "pass:${KEY_PASSWORD}" --out hmdm-phoenix-${{ inputs.new_version_name }}.apk aligned.apk
+          "$SIGNER" verify --print-certs hmdm-phoenix-${{ inputs.new_version_name }}.apk
+          rm -f ks.p12
+          sha256sum hmdm-phoenix-${{ inputs.new_version_name }}.apk
+
+      - name: BUILD — publish the signed release
+        if: ${{ inputs.mode == 'build' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          V="${{ inputs.new_version_name }}"
+          gh release create "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --title "launcher ${V}" --notes "Patched from ${{ inputs.source_tag }}: lock-screen line + status bar restored. Signed with the Phoenix key." || \
+          gh release upload "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --clobber
