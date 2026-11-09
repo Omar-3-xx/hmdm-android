@@ -140,7 +140,7 @@ jobs:
           ls smali*/com/hmdm/launcher/db/ || true
           for f in smali*/com/hmdm/launcher/db/*.smali; do cp -- "$f" "/tmp/hits/dl/$(echo "$f" | tr / _)"; done
           U="$(grep -rlE --include='*.smali' '^\.method .*getAppTempPath\(' smali* | head -1)"; echo "$U"
-          awk '/^\.method .*getAppTempPath\(/,/^\.end method/' "$U" | grep -v '^ *\.line' | grep -v '^ *$'
+          awk '/^\.method .*(getAppTempPath|getFileName)\(/,/^\.end method/' "$U" | grep -v '^ *\.line' | grep -v '^ *$'
       - name: Upload the smali to edit
         if: ${{ inputs.mode == 'inspect' }}
         uses: actions/upload-artifact@v4
