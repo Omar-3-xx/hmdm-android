@@ -20,9 +20,9 @@ on:
         required: true
         default: launcher-6.48-r1
       new_version_name:
-        description: "version name for the build (e.g. 6.49)"
+        description: "version name for the build (e.g. 6.50) - the version code is derived from it"
         required: true
-        default: "6.49"
+        default: "6.50"
 
 permissions:
   contents: write
@@ -141,6 +141,16 @@ jobs:
           I=verify/smali/com/hmdm/launcher/helper/Initializer.smali
           awk 'f && $0 !~ /^[[:space:]]*$/ { if ($0 ~ /^[[:space:]]*goto /) {print "OK: overlay start skipped by",$0; ok=1} else {print "::error::expected a goto right after the setStatusBarDisabled call-site, got:",$0; exit 1}; f=0 } /invoke-static \{p0, v4\}, Lcom\/hmdm\/launcher\/util\/Utils;->setStatusBarDisabled\(Landroid\/content\/Context;Z\)V/{ f=1 } END{ if(!ok){print "::error::setStatusBarDisabled call-site not found in Initializer"; exit 1} }' "$I"
 
+      - name: Verify the 6.50 edits landed (RustDesk quiet, no status-bar touch blocker)
+        if: ${{ inputs.mode == 'build' || inputs.mode == 'build-unsigned' }}
+        run: |
+          set -euxo pipefail
+          U=verify/smali/com/hmdm/launcher/util/Utils.smali
+          awk '$0==".method public static startRemoteAccessApp(Landroid/content/Context;Ljava/lang/String;)V"{m=1;next} m&&/^[[:space:]]*\.locals/{w=1;next} w&&$0!~/^[[:space:]]*$/{l=$0;gsub(/^[[:space:]]+/,"",l); if(l=="return-void"){print "OK: RustDesk auto-open neutered"; ok=1}; w=0;m=0} END{if(!ok){print "::error::startRemoteAccessApp still runs"; exit 1}}' "$U"
+          P="$(grep -rlE '^\.method .*static .*preventStatusBarExpansion\(' verify/smali* | head -1)"
+          awk '/^\.method .*static .*preventStatusBarExpansion\(/{m=1;next} m&&/^[[:space:]]*\.locals/{w=1;next} w&&$0!~/^[[:space:]]*$/{l=$0;gsub(/^[[:space:]]+/,"",l); if(l=="const/4 p0, 0x0"){print "OK: status-bar touch blocker returns null"; ok=1}; w=0;m=0} END{if(!ok){print "::error::preventStatusBarExpansion still draws"; exit 1}}' "$P"
+          grep -E "versionCode|versionName" out/apktool.yml
+
       - name: Zipalign
         if: ${{ inputs.mode == 'build' || inputs.mode == 'build-unsigned' }}
         run: |
@@ -185,5 +195,5 @@ jobs:
           if [ -z "$NEWC" ] || [ "$NEWC" != "$OLDC" ]; then echo "::error::signing certificate does NOT match the fleet's 6.48 — publishing refused (tablets could not update in place)"; exit 1; fi
           echo "signing certificate matches the fleet — safe to ship"
           sha256sum "hmdm-phoenix-${V}.apk"
-          gh release create "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --title "launcher ${V}" --notes "Patched from ${{ inputs.source_tag }}: lock-screen line + pull-down restored. Signed with the Phoenix key." \
+          gh release create "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --title "launcher ${V}" --notes "Patched from ${{ inputs.source_tag }}: lock-screen line, pull-down restored (all three blockers), RustDesk never auto-opens. Signed with the Phoenix key." \
             || gh release upload "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --clobber
