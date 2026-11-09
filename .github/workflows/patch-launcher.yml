@@ -10,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "inspect | build-unsigned | build"
+        description: "inspect | build-unsigned | verify-key | build"
         required: true
         default: inspect
         type: choice
-        options: [inspect, build-unsigned, build]
+        options: [inspect, build-unsigned, verify-key, build]
       source_tag:
         description: "release tag holding the APK to patch"
         required: true
@@ -85,6 +85,32 @@ jobs:
         if: ${{ inputs.mode == 'inspect' }}
         uses: actions/upload-artifact@v4
         with: { name: smali-to-edit, path: /tmp/hits, if-no-files-found: warn }
+
+      # ---------------- VERIFY-KEY (fast: does the stored password open the keystore?) ----------------
+      - name: Verify the signing key
+        if: ${{ inputs.mode == 'verify-key' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          set -uo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then echo "::error::SIGNING_KEYSTORE_B64 is empty"; exit 1; fi
+          echo "$KEYSTORE_B64" | tr -d '\r\n' | base64 -d > ks.p12
+          echo "keystore file bytes: $(wc -c < ks.p12)"
+          SP="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n')"
+          echo "stored keystore-password length (after trim): ${#SP}"
+          if keytool -list -keystore ks.p12 -storetype PKCS12 -storepass "$SP" >aliases.txt 2>err.txt; then
+            echo "OK: the stored keystore password opens the keystore."
+            echo "---- aliases in the keystore (compare to SIGNING_KEY_ALIAS) ----"
+            grep -i "alias name" aliases.txt || cat aliases.txt | head
+            echo "SIGNING_KEY_ALIAS (trimmed) = [$(printf '%s' "$KEY_ALIAS" | tr -d '\r\n')]"
+          else
+            echo "::error::the stored SIGNING_KEYSTORE_PASSWORD does NOT open the keystore"
+            head -3 err.txt
+            exit 1
+          fi
+          rm -f ks.p12
 
       # ---------------- BUILD (signed or unsigned) ----------------
       - name: Apply the two edits
