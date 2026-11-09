@@ -117,6 +117,19 @@ jobs:
           mkdir -p /tmp/hits/ver
           for f in $F; do cp -- "$f" "/tmp/hits/ver/$(echo "$f" | tr '/' '_')"; done
           for f in $F; do grep -n -B60 -A10 "Downgrade requested" "$f" | grep -E "invoke|const-string|if-|getCode|versionCode|getVersion" | head -60; done
+      - name: INSPECT — when a failed install is retried
+        if: ${{ inputs.mode == 'inspect' }}
+        run: |
+          set -uxo pipefail
+          cd out
+          F="$(grep -rl --include='*.smali' "previous install failure" smali* | head -3)"
+          echo "$F"
+          mkdir -p /tmp/hits/fail
+          for f in $F; do cp -- "$f" "/tmp/hits/fail/$(echo "$f" | tr '/' '_')"; done
+          for f in $F; do grep -n -B80 -A6 "previous install failure" "$f" | grep -E "invoke|const-string|const-wide|const |if-|cmp|sget|iget" | head -80; done
+          echo "===== who writes the failure mark ====="
+          grep -rn --include='*.smali' -i -e "InstallFailure" -e "installFailure" -e "install_failure" smali*/com/hmdm | head -40 || true
+          for f in $(grep -rl --include='*.smali' -i -e "InstallFailure" -e "installFailure" smali*/com/hmdm | sort -u); do cp -- "$f" "/tmp/hits/fail/$(echo "$f" | tr '/' '_')"; done
       - name: Upload the smali to edit
         if: ${{ inputs.mode == 'inspect' }}
         uses: actions/upload-artifact@v4
