@@ -22,7 +22,7 @@ on:
       new_version_name:
         description: "version name for the build (e.g. 6.50) - the version code is derived from it"
         required: true
-        default: "6.50"
+        default: "6.51"
 
 permissions:
   contents: write
@@ -179,6 +179,17 @@ jobs:
           awk '/^\.method public clearRestrictions\(/{m=1} m&&/const-string v0, "no_debugging_features"/{s=1} m&&s&&/unlockUserRestrictions/{print "OK: admin panel lifts the debugging block"; ok=1; exit} m&&/^\.end method/{exit} END{if(!ok){print "::error::clearRestrictions does not lift no_debugging_features"; exit 1}}' "$A"
           grep -E "versionCode|versionName" out/apktool.yml
 
+      - name: Verify the 6.51 edit landed (push notice quiet)
+        if: ${{ inputs.mode == 'build' || inputs.mode == 'build-unsigned' }}
+        run: |
+          set -euxo pipefail
+          P=verify/smali/com/hmdm/launcher/service/PushLongPollingService.smali
+          awk '$0==".method private startAsForeground()V"{m=1} m&&/^\.end method/{exit} m&&/NotificationChannel;-><init>/{ if (prev ~ /const\/4 v[0-9]+, 0x2$/) {print "OK: push channel is LOW"; ok=1} else {print "::error::push channel not LOW, got:",prev; exit 1} } m&&$0!~/^[[:space:]]*$/&&$0!~/^[[:space:]]*\.line/{prev=$0} END{if(!ok){print "::error::push channel init not found"; exit 1}}' "$P"
+          grep -n 'name="mqtt_service_text"' verify/res/values/strings.xml
+          grep -q '<string name="mqtt_service_text">Sato Pharma</string>' verify/res/values/strings.xml
+          if grep -rn "Push notifications are active" verify/res/values*/strings.xml; then echo "::error::old notice text still present"; exit 1; fi
+          echo "OK: notice reads Sato Pharma"
+
       - name: Zipalign
         if: ${{ inputs.mode == 'build' || inputs.mode == 'build-unsigned' }}
         run: |
@@ -223,5 +234,5 @@ jobs:
           if [ -z "$NEWC" ] || [ "$NEWC" != "$OLDC" ]; then echo "::error::signing certificate does NOT match the fleet's 6.48 — publishing refused (tablets could not update in place)"; exit 1; fi
           echo "signing certificate matches the fleet — safe to ship"
           sha256sum "hmdm-phoenix-${V}.apk"
-          gh release create "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --title "launcher ${V}" --notes "Patched from ${{ inputs.source_tag }}: lock-screen line, pull-down restored (all three blockers), RustDesk never auto-opens. Signed with the Phoenix key." \
+          gh release create "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --title "launcher ${V}" --notes "Patched from ${{ inputs.source_tag }}: lock-screen line, pull-down restored (all three blockers), RustDesk never auto-opens, debugging via the admin panel, quiet push notice. Signed with the Phoenix key." \
             || gh release upload "launcher-${V}-r1" "hmdm-phoenix-${V}.apk" --repo "${{ github.repository }}" --clobber

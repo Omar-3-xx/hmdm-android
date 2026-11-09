@@ -27,6 +27,9 @@ bash "$HERE/patch-statusbar.sh" "$OUT"
 echo "== 2b. quiet tablet (6.50: RustDesk never auto-opens, no touch blocker over the status bar) =="
 bash "$HERE/patch-quiet.sh" "$OUT"
 
+echo "== 2c. quiet push notice (6.51: channel LOW, text Sato Pharma) =="
+bash "$HERE/patch-notice.sh" "$OUT"
+
 echo "== 3. version bump =="
 python3 - "$OUT/apktool.yml" "$VERSION_NAME" <<'PY'
 import sys,re
